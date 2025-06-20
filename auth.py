@@ -19,6 +19,7 @@ from mcp.server.auth.provider import (
     construct_redirect_uri,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from client_storage import load_clients, save_clients
 
 # ---------------------------------------------------------------------------
 # Environment configuration
@@ -36,7 +37,6 @@ AUTH0_CALLBACK_URL = os.environ.get("AUTH0_CALLBACK_URL", "http://localhost:8000
 # ---------------------------------------------------------------------------
 # Simple in-memory storage – replace with a persistent backend for production
 # ---------------------------------------------------------------------------
-_clients: Dict[str, OAuthClientInformationFull] = {}
 _authorization_codes: Dict[str, AuthorizationCode] = {}
 _refresh_tokens: Dict[str, RefreshToken] = {}
 _access_tokens: Dict[str, AccessToken] = {}
@@ -44,6 +44,10 @@ _pending: Dict[str, dict] = {}
 _auth_by_code: Dict[str, dict] = {}
 _auth_tokens_map: Dict[str, dict] = {}
 _applicant_ids: Dict[str, str] = {}  # Map access tokens to applicant IDs
+
+# Load clients on startup and ensure defaults
+_clients: Dict[str, OAuthClientInformationFull] = {}
+
 
 @lru_cache()
 def _get_jwks():
@@ -60,25 +64,20 @@ def _get_signing_key(token: str):
     
     # Get all available keys
     jwks = _get_jwks()
-    print(f"Available keys in JWKS: {[(k.get('kid', 'no-kid'), k.get('alg', 'no-alg')) for k in jwks]}")
-    print(f"Token header - kid: {kid}, alg: {token_alg}")
     
     if kid:
         # If we have a kid, find the specific key
         for key in jwks:
             if key.get("kid") == kid:
                 key_alg = key.get("alg", token_alg)
-                print(f"Found key with kid {kid}, using algorithm: {key_alg}")
                 return jwk.construct(key), key_alg
         raise ValueError(f"Unable to find a signing key that matches: '{kid}'")
     else:
         # If no kid, use the first available key
         # This is common when there's only one signing key
         if jwks:
-            print(f"No kid in token, using first available key")
             key = jwks[0]
             key_alg = key.get("alg", token_alg)
-            print(f"Using first key with algorithm: {key_alg}")
             return jwk.construct(key), key_alg
         
         raise ValueError("No keys available in JWKS")
@@ -86,7 +85,6 @@ def _get_signing_key(token: str):
 def extract_applicant_id(auth0_claims: dict) -> str:
     """Extract applicant_id from Auth0 token claims."""
     # Try custom claim first, then fallback to sub
-    print(auth0_claims, "AUTH0 CLAIMS")
     return auth0_claims.get("applicant_id") or auth0_claims.get("sub", "")
 
 def get_applicant_id_from_token(access_token: str) -> Optional[str]:
@@ -140,7 +138,7 @@ class Auth0Provider(
     "Authorization: Bearer" header for protected tool calls, and
     `load_access_token()` transparently validates either local tokens or
     raw Auth0 JWTs.
-    """
+    """ 
 
     # ------------------------------------------------------------------
     # Dynamic client registration (optional)
@@ -153,6 +151,8 @@ class Auth0Provider(
         """Register a new OAuth client dynamically"""
         # For MCP Inspector and dynamic registration, allow overwriting existing clients
         _clients[client_info.client_id] = client_info
+        # Save to persistent storage
+        save_clients(_clients)
 
     # ------------------------------------------------------------------
     # Authorization endpoint – implemented
@@ -161,9 +161,10 @@ class Auth0Provider(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
     ) -> str:
         """Return Auth0 /authorize URL and stash request context."""
-        state = secrets.token_urlsafe(16)
+        # Use the client's state parameter (or generate one if not provided)
+        state = params.state or secrets.token_urlsafe(16)
 
-        # Save request context so we can finish later in callback
+        # Save request context using the same state that will be used throughout
         _pending[state] = {
             "client_id": client.client_id,
             "redirect_uri": params.redirect_uri,
@@ -177,24 +178,38 @@ class Auth0Provider(
             "client_id": AUTH0_CLIENT_ID,
             "redirect_uri": AUTH0_CALLBACK_URL,
             "scope": "openid profile email " + " ".join(params.scopes or []),
-            "state": state,
+            "state": state,  # Use the same state throughout the flow
         }
         # Temporarily disable PKCE for Auth0 to get the flow working
         # if params.code_challenge:
         #     query["code_challenge"] = params.code_challenge
         #     query["code_challenge_method"] = "S256"
-        return AUTH0_AUTHORIZE_URL + "?" + urllib.parse.urlencode(query)
+        
+        auth_url = AUTH0_AUTHORIZE_URL + "?" + urllib.parse.urlencode(query)
+        return auth_url
 
     async def handle_auth0_callback(self, state: str, auth0_code: str) -> str:
         """Finish Auth0 flow, create local authorization code, redirect."""
+        
+        # Clean up expired states (older than 10 minutes)
+        current_time = time.time()
+        expired_states = [s for s, ctx in _pending.items() if current_time - ctx.get('issued_at', 0) > 600]
+        for expired_state in expired_states:
+            _pending.pop(expired_state, None)
+        
+        # Load state data from memory
         ctx = _pending.pop(state, None)
         if not ctx:
             raise AuthorizeError("invalid_request", "Unknown or expired state")
 
+        # Check if state is expired (older than 10 minutes)
+        if current_time - ctx.get('issued_at', 0) > 600:
+            raise AuthorizeError("invalid_request", "Expired state")
+        
         # Don't exchange with Auth0 yet - store the Auth0 code for later
         # We'll exchange it when the MCP client provides the code_verifier
         local_code = secrets.token_urlsafe(32)
-        _authorization_codes[local_code] = AuthorizationCode(
+        auth_code = AuthorizationCode(
             code=local_code,
             scopes=ctx["scopes"],
             expires_at=time.time() + 600,
@@ -203,14 +218,20 @@ class Auth0Provider(
             redirect_uri=ctx["redirect_uri"],
             redirect_uri_provided_explicitly=True,
         )
+        
+        # Store authorization code in memory
+        _authorization_codes[local_code] = auth_code
 
         # Store the Auth0 code to exchange later when we have the code_verifier
         _auth_by_code[local_code] = {
             "auth0_code": auth0_code,
             "state": state
         }
-        # Redirect to original redirect_uri with our local authorization code
-        return construct_redirect_uri(str(ctx["redirect_uri"]), code=local_code, state=state)
+        
+        redirect_url = construct_redirect_uri(str(ctx["redirect_uri"]), code=local_code, state=state)
+        
+        # Redirect to original redirect_uri with our local authorization code and same state
+        return redirect_url
 
     # ------------------------------------------------------------------
     # Authorization code helpers – placeholders
@@ -232,7 +253,7 @@ class Auth0Provider(
         auth0_code = auth_data.get("auth0_code")
         if not auth0_code:
             raise TokenError("invalid_grant", "Missing Auth0 code")
-
+        
         # Now exchange the Auth0 code for tokens
         # Note: We need the code_verifier from the MCP client, but the current
         # MCP SDK doesn't provide it in this method. For now, we'll try without it
@@ -263,15 +284,10 @@ class Auth0Provider(
         applicant_id = None
         if auth0_access_token:
             try:
-                # First, let's check if this is actually a JWT
-                print(f"Auth0 access token (first 50 chars): {auth0_access_token[:50]}...")
-                
                 # Check if token looks like a JWT (has 3 parts separated by dots)
                 token_parts = auth0_access_token.split('.')
-                print(f"Token parts count: {len(token_parts)}")
                 
                 if len(token_parts) != 3:
-                    print("Token is not a JWT (doesn't have 3 parts), skipping JWT decoding")
                     # This might be an opaque token, we can't extract claims from it
                     # Try to get user info from Auth0's userinfo endpoint
                     try:
@@ -282,21 +298,15 @@ class Auth0Provider(
                             )
                         if userinfo_resp.status_code == 200:
                             userinfo = userinfo_resp.json()
-                            print(f"Got userinfo from Auth0: {userinfo}")
                             applicant_id = extract_applicant_id(userinfo)
-                        else:
-                            print(f"Failed to get userinfo: {userinfo_resp.status_code}")
                     except Exception as userinfo_error:
-                        print(f"Error getting userinfo: {userinfo_error}")
+                        pass
                 else:
                     # Try to decode as JWT
                     unverified_header = jwt.get_unverified_header(auth0_access_token)
-                    print(f"Token header: {unverified_header}")
                     
                     token_alg = unverified_header.get("alg")
                     if token_alg == "dir":
-                        print("Token uses 'dir' algorithm, this is not a standard JWT signature algorithm")
-                        print("This might be an encrypted JWT (JWE) or opaque token, skipping decoding")
                         # Try to get user info from Auth0's userinfo endpoint instead
                         try:
                             async with httpx.AsyncClient() as userinfo_client:
@@ -306,17 +316,12 @@ class Auth0Provider(
                                 )
                             if userinfo_resp.status_code == 200:
                                 userinfo = userinfo_resp.json()
-                                print(f"Got userinfo from Auth0: {userinfo}")
                                 applicant_id = extract_applicant_id(userinfo)
-                                print(applicant_id, "APPLICANT ID")
-                            else:
-                                print(f"Failed to get userinfo: {userinfo_resp.status_code}")
                         except Exception as userinfo_error:
-                            print(f"Error getting userinfo: {userinfo_error}")
+                            pass
                     else:
                         # Decode Auth0 JWT to extract applicant_id
                         signing_key, key_alg = _get_signing_key(auth0_access_token)
-                        print(f"Using signing key: {signing_key}, key alg: {key_alg}", "GGGGG")
                         claims = jwt.decode(
                             auth0_access_token,
                             signing_key,
@@ -326,7 +331,6 @@ class Auth0Provider(
                         )
                         applicant_id = extract_applicant_id(claims)
             except Exception as e:
-                print(f"Error decoding Auth0 token: {e}")
                 # If we can't decode the token, continue without applicant_id
                 pass
 
@@ -353,7 +357,9 @@ class Auth0Provider(
         if applicant_id:
             _applicant_ids[access_token] = applicant_id
             
-        return OAuthToken(access_token=access_token, refresh_token=refresh_token, expires_in=3600)
+        oauth_token = OAuthToken(access_token=access_token, refresh_token=refresh_token, expires_in=3600)
+        
+        return oauth_token
 
     # ------------------------------------------------------------------
     # Refresh token helpers – placeholders

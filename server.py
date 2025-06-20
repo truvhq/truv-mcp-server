@@ -1,4 +1,4 @@
-import json
+import asyncio
 import logging
 import os
 from dotenv import load_dotenv
@@ -17,12 +17,11 @@ from truv import TruvClient
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
+from client_storage import load_clients
 
 secret = os.environ.get("API_SECRET")
 client_id = os.environ.get("API_CLIENT_ID")
 product_type = os.environ.get("API_PRODUCT_TYPE", "income")
-# TODO: get applicant_id from the OAuth flow
-#applicant_id = "9578fe626502428eaf1f45b9ec7c8bdb"
 
 if not secret or not client_id:
     raise Exception("Environment MUST contains 'API_SECRET' and 'API_CLIENT_ID'")
@@ -66,12 +65,20 @@ def get_authenticated_applicant_id() -> str:
 # Initialize Auth0 provider
 auth_provider = Auth0Provider()
 
+
+async def register_clients():
+    clients = load_clients()
+    for client_id, client_info in clients.items():
+        await auth_provider.register_client(client_info)
+
+asyncio.run(register_clients())
+
 # Create an MCP server with OAuth support (Auth0 broker)
 mcp = FastMCP(
     "Truv MCP",
     auth_server_provider=auth_provider,
     auth=AuthSettings(
-        issuer_url="http://localhost:8000",  # Our MCP server acts as the OAuth Authorization Server
+        issuer_url="https://355c-2600-1700-1151-3930-718b-8e17-8b0e-20af.ngrok-free.app", #"http://localhost:8000",  # Our MCP server acts as the OAuth Authorization Server
         required_scopes=[],  # adjust if you want to require specific scopes
         client_registration_options=ClientRegistrationOptions(enabled=True),  # Enable dynamic client registration
     ),
