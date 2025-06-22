@@ -147,9 +147,21 @@ class TruvClient:
         report = self.get(f"links/{link_id}/{product_type}/report")
 
         if report.get("status") == "done":
+            del report['pdf_report']
+            del report['access_token']
             for emp in report.get("employments", []):
                 emp['statements'] = emp['statements'][:6]
-                emp['profile'] = {}
+                del emp['bank_accounts']
+                del emp['derived_fields']
+                del emp['missing_data_fields']
+                del emp['profile']
+                for st in emp['statements']:
+                    del st['file']
+                    del st['check_number']
+                    del st['derived_fields']
+                    del st['missing_data_fields']
+                for w2 in emp.get("w2s", []):
+                    del w2['file']
         return report
     
 
@@ -160,10 +172,18 @@ class TruvClient:
         )
         logging.info("TRUV: Link ID - %s", link_id)
 
-        report = self.get(f"links/{link_id}/transactions")
+        report = self.get(f"links/{link_id}/transactions?page_size=100")
 
         if report:
             report['transactions'] = report['transactions'][:100]
+            for tr in report['transactions']:
+                del tr['id']
+                del tr['external_id']
+                del tr['check_number']
+                del tr['location']
+                del tr['transacted_at']
+                del tr['merchant_category_code']
+                del tr['memo']
         return report
 
     def create_refresh_task(self, access_token: str) -> dict:
@@ -186,41 +206,3 @@ class TruvClient:
         logging.info("TRUV: Task ID - %s", task_id)
 
         return self.get(f"refresh/tasks/{task_id}/")
-
-    def get_employee_directory_by_token(self, access_token: str) -> dict:
-        logging.info(
-            "TRUV: Requesting employee directory data from https://prod.truv.com/v1/link/reports/admin/"
-        )
-        logging.info("TRUV: Access Token - %s", access_token)
-
-        return self.post(
-            "link/reports/admin/",
-            json={
-                "access_token": access_token,
-            },
-        )
-
-    def request_payroll_report(
-        self, access_token: str, start_date: str, end_date: str
-    ) -> dict:
-        logging.info(
-            "TRUV: Requesting a payroll report be created from https://prod.truv.com/v1/administrators/payrolls"
-        )
-        logging.info("TRUV: Access Token - %s", access_token)
-
-        return self.post(
-            "administrators/payrolls/",
-            json={
-                "access_token": access_token,
-                "start_date": start_date,
-                "end_date": end_date,
-            },
-        )
-
-    def get_payroll_report_by_id(self, report_id: str) -> dict:
-        logging.info(
-            "TRUV: Requesting a payroll report from https://prod.truv.com/v1/administrators/payrolls/{report_id}"
-        )
-        logging.info("TRUV: Report ID - %s", report_id)
-
-        return self.get(f"administrators/payrolls/{report_id}")

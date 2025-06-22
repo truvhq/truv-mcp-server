@@ -21,4 +21,4 @@ API_SECRET=
 
 
 4. Run the MCP server:
-uv run --project /Users/lacosta/newCo/truv-mcp-server mcp run /Users/lacosta/newCo/truv-mcp-server/server.py
+uv run --project . mcp run server.py
