@@ -51,10 +51,8 @@ def get_authenticated_applicant_id() -> str:
 
     if not external_applicant_id:
         raise ValueError("No external user id found")
-    find_users = api_client.find_user(external_applicant_id)
-    if not find_users.get("results"):
-        raise ValueError("No applicant id found")
-    applicant_id = find_users.get("results", [])[0].get("id")
+    
+    applicant_id = api_client.find_user(external_applicant_id)
     
     if not applicant_id:
         raise ValueError("Could not determine applicant ID from authentication token")
@@ -159,19 +157,22 @@ def get_income_report_authenticated(link_id: str) -> str:
         This is useful for verifying applicant income, employment status, and generating reports for underwriting or compliance purposes.
     """
     try:
+        applicant_id = get_authenticated_applicant_id()
+        if link_id not in api_client.links[applicant_id]:
+            raise ValueError("Link not found")
         return api_client.get_link_report(link_id, 'income')
     except ValueError as e:
         return f"Error: {str(e)}"
 
 
 @mcp.tool()
-def get_bank_transactions(link_id: str) -> str:
+def get_bank_transactions(link_id: str, days: int = 30) -> str:
     """
     Retrieve all bank accounts and transactions for a specific account link using the Truv API.
     
     Args:
         link_id (str): The unique identifier for the account link to retrieve accounts and transactions for.
-        
+        days (int): The number of days to retrieve transactions for. Defaults to 30.
     Returns:
         JSON object containing:
             - count (int): Total number of transactions.
@@ -210,33 +211,14 @@ def get_bank_transactions(link_id: str) -> str:
         This is useful for financial analysis, transaction history review, and account management.
     """
     try:
+        applicant_id = get_authenticated_applicant_id()
+        if link_id not in api_client.links[applicant_id]:
+            raise ValueError("Link not found")
         # Make the actual Truv API call with authenticated applicant_id
         # For now, using the existing api_client but should be updated to use applicant_id
-        return api_client.get_bank_transactions(link_id)
+        return api_client.get_bank_transactions(link_id, days)
     except ValueError as e:
         return f"Error: {str(e)}"
-
-@mcp.prompt()
-def find_savings() -> str:
-    """
-    Analyze transactions from all linked accounts for a given applicant and summarize spending by category.
-    
-    This prompt should:
-        - Retrieve all transactions from the applicant's linked accounts.
-        - Identify and group transactions by their spend categories (e.g., groceries, utilities, entertainment).
-        - Summarize total spending per category, highlighting major areas of expenditure.
-    
-    Args:
-        None (applicant context is assumed from the environment)
-    
-    Returns:
-        A summary string or structured data that lists spend categories and the total amount spent in each category for the applicant.
-    
-    Usage:
-        Use this prompt to provide applicants or analysts with an overview of spending habits, identify major expense categories, or support budgeting and financial planning.
-    """
-    return f"Where can I reduce spending?"
-
 
 if __name__ == "__main__":
     # Initialize and run the server
