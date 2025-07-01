@@ -1,7 +1,8 @@
 import logging
 from uuid import uuid4
-
+from typing import Dict
 import requests
+from datetime import datetime, timedelta
 from faker import Faker
 
 fake = Faker()
@@ -23,6 +24,9 @@ class TruvClient:
             self.api_url = api_url
         self.product_type = product_type
 
+        self.applicant_ids: Dict[str, str] = {}  # Map external user ids to applicant ids
+        self.links: Dict[str, set[str]] = {}  # Map applicant ids to links
+
     def _request(self, method, endpoint, **kwargs) -> dict:
         headers = kwargs.pop("headers", {})
         headers.update(self.headers)
@@ -35,13 +39,6 @@ class TruvClient:
                 url,
                 headers=headers,
                 **kwargs,
-            )
-            logging.info(
-                "TRUV: Response: %s %s - %s:\n %s\n",
-                method.upper(),
-                url,
-                response.status_code,
-                response.content,
             )
 
             response.raise_for_status()
@@ -71,7 +68,17 @@ class TruvClient:
     def find_user(self, external_user_id: str) -> dict:
         logging.info("TRUV: Searching for user from https://prod.truv.com/v1/users/")
 
-        return self.get(f"users/?external_user_id={external_user_id}&list_links=false")
+        if external_user_id in self.applicant_ids:
+            return self.applicant_ids[external_user_id]
+
+        find_users = self.get(f"users/?external_user_id={external_user_id}&list_links=false")
+        if not find_users.get("results"):
+            raise ValueError("No applicant id found")
+        applicant_id = find_users.get("results", [])[0].get("id")
+
+        self.applicant_ids[external_user_id] = applicant_id
+
+        return applicant_id
 
     def create_user_bridge_token(self, user_id: str) -> dict:
         logging.info(
@@ -116,26 +123,19 @@ class TruvClient:
         
         return self.post("orders/", json=payload)
 
-    def get_access_token(self, public_token: str) -> dict:
-        logging.info(
-            "TRUV: Exchanging a public_token for an access_token from https://prod.truv.com/v1/link-access-tokens"
-        )
-        logging.info("TRUV: Public Token - %s", public_token)
-
-        return self.post(
-            "link-access-tokens/",
-            json={
-                "public_token": public_token,
-            },
-        )
     
     def list_links(self, applicant_id: str) -> dict:
         logging.info(
             f"TRUV: Requesting links for {applicant_id}"
             f"https://prod.truv.com/v1/links/?user_id={applicant_id}",
         )
+        links = self.get(f"links/?user_id={applicant_id}")
+        if applicant_id not in self.links:
+            self.links[applicant_id] = set()
+        for link in links.get("results", []):
+            self.links[applicant_id].add(link.get("id"))
 
-        return self.get(f"links/?user_id={applicant_id}")
+        return links
 
     def get_link_report(self, link_id: str, product_type: str) -> dict:
         logging.info(
@@ -165,44 +165,57 @@ class TruvClient:
         return report
     
 
-    def get_bank_transactions(self, link_id: str) -> dict:
+    def get_bank_transactions(self, link_id: str, days: int = 30) -> dict:
         logging.info(
             f"TRUV: Requesting transactions from "
             f"https://prod.truv.com/v1/links/{link_id}/transactions",
         )
         logging.info("TRUV: Link ID - %s", link_id)
 
-        report = self.get(f"links/{link_id}/transactions?page_size=100")
+        # Use provided transacted_at_from or calculate from days
+       
+        from_date = datetime.now() - timedelta(days=days)
+        transacted_at_from = from_date.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+        # Initialize pagination variables
+        page = 1
+        all_transactions = []
+        all_accounts = []
+        
+        while True:
+            # Make API request with pagination
+            endpoint = f"links/{link_id}/transactions?page_size=100&page={page}&transacted_at_from={transacted_at_from}"
+            page_data = self.get(endpoint)
+            
+            # Collect accounts (they should be the same across pages, but we'll take from first page)
+            if page == 1 and page_data.get('accounts'):
+                all_accounts = page_data['accounts']
+            
+            # Collect transactions from this page
+            if page_data.get('transactions'):
+                all_transactions.extend(page_data['transactions'])
+            
+            # Check if there are more pages
+            if not page_data.get('next'):
+                break
+                
+            page += 1
+
+        # Create the final response structure
+        report = {
+            'count': len(all_transactions),
+
+            'accounts': all_accounts,
+            'transactions': all_transactions
+        }
+
+        # Apply data filtering/cleanup
         if report:
-            report['transactions'] = report['transactions'][:100]
+            # Limit transactions to 100 if you want to keep the original behavior
+            #report['transactions'] = report['transactions'][:100]
             for tr in report['transactions']:
-                del tr['id']
-                del tr['external_id']
-                del tr['check_number']
-                del tr['location']
-                del tr['transacted_at']
-                del tr['merchant_category_code']
-                del tr['memo']
+                # Remove sensitive/unnecessary fields
+                for field in ['id', 'external_id', 'check_number', 'location', 'transacted_at', 'merchant_category_code', 'memo', 'created_at', 'updated_at']:
+                    if field in tr:
+                        del tr[field]
         return report
-
-    def create_refresh_task(self, access_token: str) -> dict:
-        logging.info(
-            "TRUV: Requesting a data refresh from https://prod.truv.com/v1/refresh/tasks"
-        )
-        logging.info("TRUV: Access Token - %s", access_token)
-
-        return self.post(
-            "refresh/tasks/",
-            json={
-                "access_token": access_token,
-            },
-        )
-
-    def get_refresh_task(self, task_id: str) -> dict:
-        logging.info(
-            "TRUV: Requesting a refresh task from https://prod.truv.com/v1/refresh/tasks/{task_id}"
-        )
-        logging.info("TRUV: Task ID - %s", task_id)
-
-        return self.get(f"refresh/tasks/{task_id}/")

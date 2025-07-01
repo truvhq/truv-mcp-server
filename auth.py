@@ -227,7 +227,6 @@ class Auth0Provider(
             "auth0_code": auth0_code,
             "state": state
         }
-        
         redirect_url = construct_redirect_uri(str(ctx["redirect_uri"]), code=local_code, state=state)
         
         # Redirect to original redirect_uri with our local authorization code and same state
