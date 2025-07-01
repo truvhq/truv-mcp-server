@@ -33,6 +33,34 @@ api_client = TruvClient(
 )
 
 
+# Initialize Auth0 provider
+auth_provider = Auth0Provider()
+
+
+async def register_clients():
+    clients = load_clients()
+    for client_id, client_info in clients.items():
+        await auth_provider.register_client(client_info)
+
+asyncio.run(register_clients())
+
+# Create an MCP server with OAuth support (Auth0 broker)
+mcp = FastMCP(
+    "Truv MCP",
+    auth_server_provider=auth_provider,
+    auth=AuthSettings(
+        issuer_url=os.environ.get("ISSUER_URL", "http://localhost:8000"),  # Our MCP server acts as the OAuth Authorization Server
+        required_scopes=[],  # adjust if you want to require specific scopes
+        client_registration_options=ClientRegistrationOptions(enabled=True),  # Enable dynamic client registration
+    ),
+    host=os.environ.get("HOST", "localhost"),
+    port=os.environ.get("PORT", 8000),
+    debug=True,
+)
+
+# Note: CORS might be handled automatically by FastMCP for OAuth flows
+# If we need explicit CORS configuration, we'll need to use FastMCP's approach
+
 def get_authenticated_applicant_id() -> str:
     """
     Extract the applicant_id from the authenticated user's access token.
@@ -58,35 +86,6 @@ def get_authenticated_applicant_id() -> str:
         raise ValueError("No connected accounts found. Please connect your accounts first.")
     
     return applicant_id
-
-
-# Initialize Auth0 provider
-auth_provider = Auth0Provider()
-
-
-async def register_clients():
-    clients = load_clients()
-    for client_id, client_info in clients.items():
-        await auth_provider.register_client(client_info)
-
-asyncio.run(register_clients())
-
-# Create an MCP server with OAuth support (Auth0 broker)
-mcp = FastMCP(
-    "Truv MCP",
-    auth_server_provider=auth_provider,
-    auth=AuthSettings(
-        issuer_url="https://355c-2600-1700-1151-3930-718b-8e17-8b0e-20af.ngrok-free.app", #"http://localhost:8000",  # Our MCP server acts as the OAuth Authorization Server
-        required_scopes=[],  # adjust if you want to require specific scopes
-        client_registration_options=ClientRegistrationOptions(enabled=True),  # Enable dynamic client registration
-    ),
-    host="localhost",
-    port=8000,
-    debug=True,
-)
-
-# Note: CORS might be handled automatically by FastMCP for OAuth flows
-# If we need explicit CORS configuration, we'll need to use FastMCP's approach
 
 # Add the Auth0 callback endpoint
 @mcp.custom_route("/auth/callback", methods=["GET"])
@@ -246,4 +245,4 @@ def get_bank_transactions(link_id: str, days: int = 30) -> str:
 
 if __name__ == "__main__":
     # Initialize and run the server
-    mcp.run(transport='sse')
+    mcp.run(transport='sse') # streamable-http is for production
