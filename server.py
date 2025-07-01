@@ -55,7 +55,7 @@ def get_authenticated_applicant_id() -> str:
     applicant_id = api_client.find_user(external_applicant_id)
     
     if not applicant_id:
-        raise ValueError("Could not determine applicant ID from authentication token")
+        raise ValueError("No connected accounts found. Please connect your accounts first.")
     
     return applicant_id
 
@@ -105,10 +105,34 @@ async def auth_callback(request: Request):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
-#@mcp.tool()
-#def collect_data(email: str):
-#    order = api_client.create_order(email)
-#    return order['id']
+@mcp.tool()
+async def connect_accounts(company_names: list[str] = None, bank_names: list[str] = None) -> str:
+    """
+    Connect additional financial or payroll accounts by generating a temporary order page URL.
+
+    This tool allows users to connect additional bank accounts, payroll systems, 
+    or other financial data sources to expand their available data collection. 
+    The tool returns a secure, temporary URL where users can authenticate and 
+    authorize access to their additional accounts.
+
+    Optionally, specific company names where the user works or bank names where 
+    the user has accounts can be provided to streamline the connection process 
+    and focus data collection efforts.
+    
+    Args:
+        company_names (list[str]): Optional list of employer/company names to 
+            prioritize during the account connection process.
+        bank_names (list[str]): Optional list of financial institution names to 
+            prioritize during the account connection process.
+
+    Returns:
+        str: A temporary, secure URL where the user can connect their additional 
+        accounts. This URL expires after a set time period for security.
+    """
+    applicant_id = get_authenticated_applicant_id()
+
+    order = api_client.create_order(applicant_id, company_names, bank_names)
+    return order['short_share_url']
 
 @mcp.tool()
 async def list_accounts() -> str:

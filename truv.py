@@ -56,6 +56,7 @@ class TruvClient:
 
     def create_user(self, **kwargs) -> dict:
         logging.info("TRUV: Requesting new user from https://prod.truv.com/v1/users/")
+        
         payload = {
             "external_user_id": f"qs-{uuid4().hex}",
             "first_name": fake.first_name(),
@@ -108,18 +109,28 @@ class TruvClient:
                 )
         return self.post(f"users/{user_id}/tokens/", json=payload)
     
-    def create_order(self, email: str) -> dict:
+    def create_order(self, applicant_id: str, company_names: list[str], bank_names: list[str]) -> dict:
         logging.info(
             "TRUV: Requesting order from https://prod.truv.com/v1/orders/"
         )
 
+        applicant = self.get(f"users/{applicant_id}")
+
         payload = {
-            "order_number": f"qs-{uuid4().hex}",
-            "first_name": fake.first_name(),
-            "last_name": fake.last_name(),
-            "email": email,
-            "products": [self.product_type]
+            "order_number": applicant["external_user_id"],
+            "first_name": applicant["first_name"],
+            "last_name": applicant["last_name"],
+            "products": ["income", "assets"]
         }
+
+        if company_names:
+            payload["employers"] = []
+            for company_name in company_names:
+                payload["employers"].append({"company_name": company_name})
+        if bank_names:
+            payload["financial_institutions"] = []
+            for bank_name in bank_names:
+                payload["financial_institutions"].append({"name": bank_name})
         
         return self.post("orders/", json=payload)
 
