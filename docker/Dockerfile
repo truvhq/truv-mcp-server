@@ -27,4 +27,4 @@ EXPOSE 8000
 # The .env file should be mounted or copied at runtime if needed
 
 # Run the server using MCP
-CMD ["mcp", "run", "server.py"] 
+CMD ["python", "server.py"]
