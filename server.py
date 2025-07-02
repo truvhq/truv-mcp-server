@@ -12,7 +12,7 @@ from mcp.server.fastmcp import Context
 from mcp.server.auth.middleware.auth_context import get_access_token
 
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
-from auth import Auth0Provider, get_applicant_id_from_token
+from auth import Auth0Provider, get_applicant_id_from_token, get_user_info
 from truv import TruvClient
 
 from starlette.requests import Request
@@ -87,6 +87,16 @@ def get_authenticated_applicant_id() -> str:
     
     return applicant_id
 
+def get_applicant_info() -> dict:
+    """
+    Get applicant info for a given access token.
+    """
+    access_token = get_access_token()
+    if not access_token:
+        raise ValueError("Not authenticated")
+    user_info = get_user_info(access_token.token)
+    return user_info
+
 # Add the Auth0 callback endpoint
 @mcp.custom_route("/auth/callback", methods=["GET"])
 async def auth_callback(request: Request):
@@ -128,9 +138,23 @@ async def connect_accounts(company_names: list[str] = None, bank_names: list[str
         str: A temporary, secure URL where the user can connect their additional 
         accounts. This URL expires after a set time period for security.
     """
-    applicant_id = get_authenticated_applicant_id()
+    applicant_id = None
+    try:
+        applicant_id = get_authenticated_applicant_id()
+    except ValueError as e:
+        logging.info(f"Applicant id not found: {e}")
 
-    order = api_client.create_order(applicant_id, company_names, bank_names)
+    user_info = get_applicant_info()
+    print(user_info, "user_info")
+
+    applicant = {
+        'id': applicant_id,
+        'first_name': user_info.get('nickname'),
+        'last_name': user_info.get('name'),
+        'external_user_id': user_info.get('sub'),
+    }
+
+    order = api_client.create_order(applicant, company_names, bank_names)
     return order['short_share_url']
 
 @mcp.tool()

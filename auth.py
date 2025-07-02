@@ -44,6 +44,7 @@ _pending: Dict[str, dict] = {}
 _auth_by_code: Dict[str, dict] = {}
 _auth_tokens_map: Dict[str, dict] = {}
 _applicant_ids: Dict[str, str] = {}  # Map access tokens to applicant IDs
+_user_info: Dict[str, dict] = {}  # Map access tokens to user info
 
 # Load clients on startup and ensure defaults
 _clients: Dict[str, OAuthClientInformationFull] = {}
@@ -85,11 +86,17 @@ def _get_signing_key(token: str):
 def extract_applicant_id(auth0_claims: dict) -> str:
     """Extract applicant_id from Auth0 token claims."""
     # Try custom claim first, then fallback to sub
-    return auth0_claims.get("applicant_id") or auth0_claims.get("sub", "")
+    token = auth0_claims.get("sub")
+    return token
 
 def get_applicant_id_from_token(access_token: str) -> Optional[str]:
     """Get applicant_id for a given access token."""
     return _applicant_ids.get(access_token)
+
+def get_user_info(access_token: str) -> dict:
+    """Get user info for a given access token."""
+    return _user_info.get(access_token)
+
 
 # ---------------------------------------------------------------------------
 # Provider implementation (BROKER pattern – delegates login to Auth0)
@@ -281,6 +288,7 @@ class Auth0Provider(
         # Extract applicant_id from Auth0 access token if available
         auth0_access_token = tok.get("access_token")
         applicant_id = None
+        userinfo = None
         if auth0_access_token:
             try:
                 # Check if token looks like a JWT (has 3 parts separated by dots)
@@ -329,6 +337,7 @@ class Auth0Provider(
                             issuer=f"https://{AUTH0_DOMAIN}/",
                         )
                         applicant_id = extract_applicant_id(claims)
+                        userinfo = claims
             except Exception as e:
                 # If we can't decode the token, continue without applicant_id
                 pass
@@ -355,6 +364,7 @@ class Auth0Provider(
         # Store applicant_id mapping if available
         if applicant_id:
             _applicant_ids[access_token] = applicant_id
+            _user_info[access_token] = userinfo
             
         oauth_token = OAuthToken(access_token=access_token, refresh_token=refresh_token, expires_in=3600)
         
@@ -439,7 +449,7 @@ class Auth0Provider(
             # Store applicant_id mapping for use in Truv API calls
             if applicant_id:
                 _applicant_ids[token] = applicant_id
-                
+                _user_info[token] = claims
             # Optionally cache
             _access_tokens[token] = at
             return at
@@ -455,3 +465,4 @@ class Auth0Provider(
         _refresh_tokens.pop(tkn, None)
         _auth_tokens_map.pop(tkn, None)
         _applicant_ids.pop(tkn, None)  # Clean up applicant_id mapping 
+        _user_info.pop(tkn, None)  # Clean up user info mapping
