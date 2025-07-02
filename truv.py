@@ -3,9 +3,6 @@ from uuid import uuid4
 from typing import Dict
 import requests
 from datetime import datetime, timedelta
-from faker import Faker
-
-fake = Faker()
 
 
 class TruvClient:
@@ -53,18 +50,6 @@ class TruvClient:
 
     def get(self, endpoint: str, **kwargs) -> dict:
         return self._request("get", endpoint, **kwargs)
-
-    def create_user(self, **kwargs) -> dict:
-        logging.info("TRUV: Requesting new user from https://prod.truv.com/v1/users/")
-        
-        payload = {
-            "external_user_id": f"qs-{uuid4().hex}",
-            "first_name": fake.first_name(),
-            "last_name": fake.last_name(),
-            "email": fake.email(domain="example.com"),
-            **kwargs,
-        }
-        return self.post("users/", json=payload)
     
     def find_user(self, external_user_id: str) -> dict:
         logging.info("TRUV: Searching for user from https://prod.truv.com/v1/users/")
@@ -74,54 +59,37 @@ class TruvClient:
 
         find_users = self.get(f"users/?external_user_id={external_user_id}&list_links=false")
         if not find_users.get("results"):
-            raise ValueError("No applicant id found")
+            raise ValueError("No active connected accounts found. Please connect your accounts first.")
         applicant_id = find_users.get("results", [])[0].get("id")
 
         self.applicant_ids[external_user_id] = applicant_id
 
         return applicant_id
-
-    def create_user_bridge_token(self, user_id: str) -> dict:
-        logging.info(
-            "TRUV: Requesting user bridge token from https://prod.truv.com/v1/users/{user_id}/tokens"
-        )
-        logging.info("TRUV: User ID - %s", user_id)
-
-        payload = {
-            "product_type": self.product_type,
-            "tracking_info": "1338-0111-A",
-        }
-
-        if self.product_type in ["deposit_switch", "pll"]:
-            payload["account"] = {
-                "account_number": "16002600",
-                "account_type": "checking",
-                "routing_number": "12345678",
-                "bank_name": fake.company(),
-            }
-
-            if self.product_type == "pll":
-                payload["account"].update(
-                    {
-                        "deposit_type": "amount",
-                        "deposit_value": "100",
-                    }
-                )
-        return self.post(f"users/{user_id}/tokens/", json=payload)
     
-    def create_order(self, applicant_id: str, company_names: list[str], bank_names: list[str]) -> dict:
+    def create_order(self, applicant: dict, company_names: list[str], bank_names: list[str]) -> dict:
         logging.info(
             "TRUV: Requesting order from https://prod.truv.com/v1/orders/"
         )
 
-        applicant = self.get(f"users/{applicant_id}")
+        applicant_id = applicant.get("id")
+        payload = {}
 
-        payload = {
-            "order_number": applicant["external_user_id"],
-            "first_name": applicant["first_name"],
-            "last_name": applicant["last_name"],
-            "products": ["income", "assets"]
-        }
+        if applicant_id:
+            truv_applicant = self.get(f"users/{applicant_id}")
+
+            payload = {
+                "order_number": truv_applicant["external_user_id"],
+                "first_name": truv_applicant["first_name"],
+                "last_name": truv_applicant["last_name"],
+                "products": ["income", "assets"]
+            }
+        else:
+            payload = {
+                "order_number": applicant["external_user_id"],
+                "first_name": applicant.get("first_name"),
+                "last_name": applicant.get("last_name"),
+                "products": ["income", "assets"]
+            }
 
         if company_names:
             payload["employers"] = []
