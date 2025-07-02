@@ -158,7 +158,7 @@ async def connect_accounts(company_names: list[str] = None, bank_names: list[str
     return order['short_share_url']
 
 @mcp.tool()
-async def list_accounts() -> str:
+async def list_accounts() -> dict:
     """
     Get a list of all accounts (links) for an applicant using the Truv API.
 
@@ -188,7 +188,7 @@ async def list_accounts() -> str:
 
 
 @mcp.tool()
-def get_income_report_authenticated(link_id: str) -> str:
+def get_income_report_authenticated(link_id: str) -> dict:
     """
     Get a personalized income report for a specific account link using the Truv API.
     
@@ -213,7 +213,7 @@ def get_income_report_authenticated(link_id: str) -> str:
 
 
 @mcp.tool()
-def get_bank_transactions(link_id: str, days: int = 30) -> str:
+def get_bank_transactions(link_id: str, days: int = 30) -> dict:
     """
     Retrieve all bank accounts and transactions for a specific account link using the Truv API.
     
