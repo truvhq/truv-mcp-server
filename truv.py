@@ -2,10 +2,7 @@ import logging
 from typing import Dict
 import requests
 from datetime import datetime, timedelta
-from faker import Faker
 import os
-
-fake = Faker()
 
 
 class TruvClient:

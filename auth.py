@@ -465,3 +465,4 @@ class Auth0Provider(
         _refresh_tokens.pop(tkn, None)
         _auth_tokens_map.pop(tkn, None)
         _applicant_ids.pop(tkn, None)  # Clean up applicant_id mapping 
+        _user_info.pop(tkn, None)  # Clean up user info mapping

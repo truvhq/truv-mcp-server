@@ -37,9 +37,9 @@ auth_provider = Auth0Provider()
 
 async def register_clients():
     clients = load_clients()
-    print(f">>> Loaded {len(clients)} clients from storage")
+    logging.info(f">>> Loaded {len(clients)} clients from storage")
     for client_id, client_info in clients.items():
-        print(f">>> Registering client: {client_id}")
+        logging.info(f">>> Registering client: {client_id}")
         await auth_provider.register_client(client_info)
 
 asyncio.run(register_clients())
@@ -50,7 +50,6 @@ mcp = FastMCP(
     auth_server_provider=auth_provider,
     auth=AuthSettings(
         issuer_url=os.environ.get("ISSUER_URL", "http://localhost:8000"),
-        resource_server_url=os.environ.get("RESOURCE_SERVER_URL", os.environ.get("ISSUER_URL", "http://localhost:8000")),
         required_scopes=[],  # adjust if you want to require specific scopes
         client_registration_options=ClientRegistrationOptions(enabled=True),  # Enable dynamic client registration
     ),
@@ -146,7 +145,7 @@ async def connect_accounts(company_names: list[str] = None, bank_names: list[str
         logging.info(f"Applicant id not found: {e}")
 
     user_info = get_applicant_info()
-    print(user_info, "user_info")
+    logging.info(user_info, "user_info")
 
     applicant = {
         'id': applicant_id,
@@ -270,5 +269,5 @@ def get_bank_transactions(link_id: str, days: int = 30) -> dict:
 
 if __name__ == "__main__":
     # Initialize and run the server
-    print(">>> About to start MCP server")
+    logging.info(">>> About to start MCP server")
     mcp.run(transport='streamable-http') # streamable-http is for production
