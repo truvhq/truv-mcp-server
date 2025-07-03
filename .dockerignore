@@ -1,0 +1,36 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.py[cod]
+*$py.class
+
+# Environment files
+.env
+.env.*
+*.env
+
+# Test files
+tests/
+test_*.py
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build files
+*.log
+docker-compose*.yml
+
+# Cache
+.pytest_cache/
+.coverage
+htmlcov/ 

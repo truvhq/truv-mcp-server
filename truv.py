@@ -1,26 +1,29 @@
 import logging
-from uuid import uuid4
 from typing import Dict
 import requests
 from datetime import datetime, timedelta
+import os
 
 
 class TruvClient:
-    api_url = "https://prod.truv.com/v1/"
-
     def __init__(
         self, client_id: str, secret: str, product_type: str, api_url: str = None
     ):
+        # Determine API domain from environment or default
+        domain = os.environ.get("TRUV_API_DOMAIN", "https://prod.truv.com")
+        # If api_url is provided, use it; otherwise, construct from domain
+        if api_url:
+            self.api_url = api_url
+        else:
+            # Ensure trailing slash and append v1/
+            self.api_url = domain.rstrip("/") + "/v1/"
         self.headers = {
             "X-Access-Client-Id": client_id,
             "X-Access-Secret": secret,
             "Content-Type": "application/json;charset=UTF-8",
             "Accept": "application/json",
         }
-        if api_url:
-            self.api_url = api_url
         self.product_type = product_type
-
         self.applicant_ids: Dict[str, str] = {}  # Map external user ids to applicant ids
         self.links: Dict[str, set[str]] = {}  # Map applicant ids to links
 

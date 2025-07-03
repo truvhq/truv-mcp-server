@@ -32,14 +32,14 @@ api_client = TruvClient(
     product_type=product_type,
 )
 
-
 # Initialize Auth0 provider
 auth_provider = Auth0Provider()
 
-
 async def register_clients():
     clients = load_clients()
+    logging.info(f">>> Loaded {len(clients)} clients from storage")
     for client_id, client_info in clients.items():
+        logging.info(f">>> Registering client: {client_id}")
         await auth_provider.register_client(client_info)
 
 asyncio.run(register_clients())
@@ -49,11 +49,11 @@ mcp = FastMCP(
     "Truv MCP",
     auth_server_provider=auth_provider,
     auth=AuthSettings(
-        issuer_url=os.environ.get("ISSUER_URL", "http://localhost:8000"),  # Our MCP server acts as the OAuth Authorization Server
+        issuer_url=os.environ.get("ISSUER_URL", "http://localhost:8000"),
         required_scopes=[],  # adjust if you want to require specific scopes
         client_registration_options=ClientRegistrationOptions(enabled=True),  # Enable dynamic client registration
     ),
-    host=os.environ.get("HOST", "localhost"),
+    host=os.environ.get("HOST", "0.0.0.0"),
     port=os.environ.get("PORT", 8000),
     debug=True,
 )
@@ -145,7 +145,7 @@ async def connect_accounts(company_names: list[str] = None, bank_names: list[str
         logging.info(f"Applicant id not found: {e}")
 
     user_info = get_applicant_info()
-    print(user_info, "user_info")
+    logging.info(user_info, "user_info")
 
     applicant = {
         'id': applicant_id,
@@ -269,4 +269,5 @@ def get_bank_transactions(link_id: str, days: int = 30) -> dict:
 
 if __name__ == "__main__":
     # Initialize and run the server
-    mcp.run(transport='sse') # streamable-http is for production
+    logging.info(">>> About to start MCP server")
+    mcp.run(transport='streamable-http') # streamable-http is for production
