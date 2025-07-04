@@ -117,11 +117,12 @@ async def auth_callback(request: Request):
 @mcp.tool()
 async def connect_accounts(company_names: list[str] = None, bank_names: list[str] = None) -> str:
     """
-    Connect additional financial or payroll accounts by generating a temporary order page URL.
+    Connect additional financial or payroll accounts by generating a temporary order page HTML.
+    This HTML should be displayed in a modal as an artifact.
 
     This tool allows users to connect additional bank accounts, payroll systems, 
     or other financial data sources to expand their available data collection. 
-    The tool returns a secure, temporary URL where users can authenticate and 
+    The tool returns an HTML page where users can authenticate and 
     authorize access to their additional accounts.
 
     Optionally, specific company names where the user works or bank names where 
@@ -135,8 +136,7 @@ async def connect_accounts(company_names: list[str] = None, bank_names: list[str
             prioritize during the account connection process.
 
     Returns:
-        str: A temporary, secure URL where the user can connect their additional 
-        accounts. This URL expires after a set time period for security.
+        str: An html page where the user can connect their additional accounts.
     """
     applicant_id = None
     try:
@@ -155,7 +155,62 @@ async def connect_accounts(company_names: list[str] = None, bank_names: list[str
     }
 
     order = api_client.create_order(applicant, company_names, bank_names)
-    return order['short_share_url']
+    
+
+    # Return full-screen iframe with proper styling
+    return f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Your Accounts - Truv</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        html, body {{
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }}
+        
+        .iframe-container {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+        }}
+        
+        .truv-iframe {{
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }}
+    </style>
+</head>
+<body>
+    <div class="iframe-container">
+        <iframe 
+            class="truv-iframe" 
+            src="{order['short_share_url']}" 
+            title="Connect Your Accounts - Truv"
+            allow="camera; microphone; geolocation; payment; autoplay; encrypted-media; fullscreen"
+            allowfullscreen
+            webkitallowfullscreen
+            mozallowfullscreen
+            sandbox="allow-same-origin allow-scripts allow-forms allow-top-navigation allow-popups allow-modals allow-orientation-lock allow-pointer-lock allow-presentation allow-top-navigation-by-user-activation"
+        ></iframe>
+    </div>
+</body>
+</html>
+"""
 
 @mcp.tool()
 async def list_accounts() -> dict:
